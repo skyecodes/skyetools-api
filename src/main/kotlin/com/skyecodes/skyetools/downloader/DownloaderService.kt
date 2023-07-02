@@ -5,13 +5,18 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.io.File
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.stream.Stream
+import kotlin.io.path.exists
 
 @Service
 class DownloaderService {
     private val logger = LoggerFactory.getLogger(DownloaderService::class.java)
+    private val processedFiles = ConcurrentHashMap<UUID, Path>()
 
     @Value("\${skyetools.downloader.ytdlpPath}")
     private lateinit var ytdlpPath: String
@@ -19,8 +24,60 @@ class DownloaderService {
     @Value("\${skyetools.downloader.outputPath}")
     private lateinit var outputPath: String
 
-    fun downloadFromUrl(req: DownloadRequest): Optional<Path> {
-        val params = mutableListOf(ytdlpPath, "--print", "after_move:filepath", "--force-overwrites", "-P", outputPath, "--restrict-filenames")
+    fun processDownload(req: DownloadRequest): Stream<ProcessMessage> {
+        val params = getCommandParametersFromRequest(req)
+        logger.debug("Executing command: {}", params.joinToString(" "))
+        val process = ProcessBuilder(params).redirectErrorStream(true).start()
+        var idx = 0
+        var isCompleted = false
+        var progress: Double
+        var fileId: UUID? = null
+        return process.inputReader().lines().map { line ->
+            logger.trace(line)
+            if (line.startsWith("ERROR: ")) {
+                return@map line.substring(7).let { error ->
+                    logger.debug("Error while processing {}: {}", req.url, error)
+                    ProcessErrorMessage(idx++, error)
+                }
+            }
+            if (!isCompleted && line.startsWith("[download]")) {
+                progress = line.split("%")[0].substring(10).trim().toDouble()
+                if (!line.contains("ETA")) {
+                    isCompleted = true
+                }
+                logger.trace("Processing of {} progress: {}%", req.url, progress)
+            } else {
+                isCompleted = true
+                progress = 100.0
+                if (!line.startsWith("[download]")) {
+                    try {
+                        val path = Path.of(line)
+                        if (path.exists()) {
+                            fileId = UUID.randomUUID()
+                            registerProcessedFile(fileId!!, path)
+                            logger.debug("Processing of {} completed, fileId={}", req.url, fileId)
+                        }
+                    } catch (e: InvalidPathException) {
+                        logger.warn("Ignored output line: {}", line)
+                    }
+                }
+            }
+            ProcessProgressMessage(idx++, isCompleted, progress, fileId)
+        }
+    }
+
+    private fun getCommandParametersFromRequest(req: DownloadRequest): List<String> {
+        val params = mutableListOf(
+            ytdlpPath,
+            "--print",
+            "after_move:filepath",
+            "--progress",
+            "--newline",
+            "--force-overwrites",
+            "-P",
+            outputPath,
+            "--restrict-filenames"
+        )
         if (!(req.type == DownloadRequest.Type.ALL && req.quality == DownloadRequest.Quality.BEST && req.size == DownloadRequest.Size.NO_LIMIT)) {
             if (req.type == DownloadRequest.Type.AUDIO) {
                 params += "-x"
@@ -39,22 +96,20 @@ class DownloaderService {
             params += "--prefer-free-formats"
         }
         params += req.url
-        logger.debug("Executing command: {}", params.joinToString(" "))
-        val process = ProcessBuilder(params).start()
-        val errorLines = process.errorReader().lines().toList()
-        if (errorLines.isNotEmpty()) handleError(req, errorLines)
-        return process.inputReader().lines().findFirst().map(Path::of)
+        return params
     }
 
-    private fun handleError(req: DownloadRequest, errorLines: List<String>) {
-        logger.error("Error while processing {}", req.url)
-        errorLines.forEach { logger.debug(it) }
+    fun registerProcessedFile(fileId: UUID, path: Path) {
+        processedFiles[fileId] = path
     }
+
+    fun getProcessedFile(fileId: UUID) = Optional.ofNullable(processedFiles[fileId])
 
     @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)
     fun clearCache() {
         logger.info("Clearing downloader cache...")
         File(outputPath).deleteRecursively()
+        processedFiles.clear()
         logger.info("Downloader cache cleared")
     }
 
