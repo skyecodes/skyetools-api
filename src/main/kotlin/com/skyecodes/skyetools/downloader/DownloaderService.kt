@@ -1,5 +1,11 @@
 package com.skyecodes.skyetools.downloader
 
+import com.skyecodes.skyetools.SSEErrorMessage
+import com.skyecodes.skyetools.SSEMessage
+import com.skyecodes.skyetools.SSEProgressMessage
+import com.skyecodes.skyetools.process.ProcessService
+import com.skyecodes.skyetools.storage.StorageService
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
@@ -8,61 +14,64 @@ import java.io.File
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.stream.Stream
 import kotlin.io.path.exists
 
 @Service
-class DownloaderService {
-    private val logger = LoggerFactory.getLogger(DownloaderService::class.java)
-    private val processedFiles = ConcurrentHashMap<UUID, Path>()
+class DownloaderService(val storageService: StorageService, val processService: ProcessService) {
+    private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     @Value("\${skyetools.downloader.ytdlpPath}")
     private lateinit var ytdlpPath: String
 
-    @Value("\${skyetools.downloader.outputPath}")
-    private lateinit var outputPath: String
+    private val outputPath by lazy { File(storageService.storagePath, "downloader").apply { mkdirs() } }
 
-    fun processDownload(req: DownloadRequest): Stream<ProcessMessage> {
+    fun processDownload(req: DownloadRequest): UUID {
         val params = getCommandParametersFromRequest(req)
         logger.debug("Executing command: {}", params.joinToString(" "))
-        val process = ProcessBuilder(params).redirectErrorStream(true).start()
+        val process = ProcessBuilder(params).directory(outputPath).redirectErrorStream(true).start()
+        return processService.register(process)
+    }
+
+    fun streamDownloadProgress(processId: UUID): Optional<Stream<SSEMessage>> {
         var idx = 0
         var isCompleted = false
         var progress: Double
         var fileId: UUID? = null
-        return process.inputReader().lines().map { line ->
-            logger.trace(line)
-            if (line.startsWith("ERROR: ")) {
-                return@map line.substring(7).let { error ->
-                    logger.debug("Error while processing {}: {}", req.url, error)
-                    ProcessErrorMessage(idx++, error)
-                }
-            }
-            if (!isCompleted && line.startsWith("[download]")) {
-                progress = line.split("%")[0].substring(10).trim().toDouble()
-                if (!line.contains("ETA")) {
-                    isCompleted = true
-                }
-                logger.trace("Processing of {} progress: {}%", req.url, progress)
-            } else {
-                isCompleted = true
-                progress = 100.0
-                if (!line.startsWith("[download]")) {
-                    try {
-                        val path = Path.of(line)
-                        if (path.exists()) {
-                            fileId = UUID.randomUUID()
-                            registerProcessedFile(fileId!!, path)
-                            logger.debug("Processing of {} completed, fileId={}", req.url, fileId)
-                        }
-                    } catch (e: InvalidPathException) {
-                        logger.warn("Ignored output line: {}", line)
+        return processService.get(processId).map {
+            it.inputReader().lines().map { line ->
+                logger.trace(line)
+                if (line.startsWith("ERROR: ")) {
+                    line.substring(7).let { error ->
+                        logger.debug("Error while processing {}: {}", processId, error)
+                        SSEErrorMessage(idx++, error)
                     }
+                } else {
+                    if (!isCompleted && line.startsWith("[download]")) {
+                        progress = line.split("%")[0].substring(10).trim().toDouble()
+                        if (!line.contains("ETA")) {
+                            isCompleted = true
+                        }
+                        logger.trace("Processing of {} progress: {}%", processId, progress)
+                    } else {
+                        isCompleted = true
+                        progress = 100.0
+                        if (!line.startsWith("[download]")) {
+                            try {
+                                val path = Path.of(line)
+                                if (path.exists()) {
+                                    fileId = storageService.storeAndGetId(path, processId)
+                                    logger.debug("Processing of {} completed, fileId={}", processId, fileId)
+                                }
+                            } catch (e: InvalidPathException) {
+                                logger.warn("Ignored output line: {}", line)
+                            }
+                        }
+                    }
+                    SSEProgressMessage(idx++, isCompleted, progress, fileId)
                 }
             }
-            ProcessProgressMessage(idx++, isCompleted, progress, fileId)
         }
     }
 
@@ -73,9 +82,6 @@ class DownloaderService {
             "after_move:filepath",
             "--progress",
             "--newline",
-            "--force-overwrites",
-            "-P",
-            outputPath,
             "--restrict-filenames"
         )
         if (!(req.type == DownloadRequest.Type.ALL && req.quality == DownloadRequest.Quality.BEST && req.size == DownloadRequest.Size.NO_LIMIT)) {
@@ -97,20 +103,6 @@ class DownloaderService {
         }
         params += req.url
         return params
-    }
-
-    fun registerProcessedFile(fileId: UUID, path: Path) {
-        processedFiles[fileId] = path
-    }
-
-    fun getProcessedFile(fileId: UUID) = Optional.ofNullable(processedFiles[fileId])
-
-    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)
-    fun clearCache() {
-        logger.info("Clearing downloader cache...")
-        File(outputPath).deleteRecursively()
-        processedFiles.clear()
-        logger.info("Downloader cache cleared")
     }
 
     @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)

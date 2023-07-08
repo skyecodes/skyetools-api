@@ -6,8 +6,8 @@ import org.springframework.scheduling.annotation.EnableScheduling
 
 @SpringBootApplication
 @EnableScheduling
-class SkyetoolsBackendApplication
+class SkyeToolsApplication
 
 fun main(args: Array<String>) {
-    runApplication<SkyetoolsBackendApplication>(*args)
+    runApplication<SkyeToolsApplication>(*args)
 }
