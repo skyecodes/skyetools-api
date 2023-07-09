@@ -20,7 +20,8 @@ class WebConfig : WebMvcConfigurer {
 
     override fun addCorsMappings(registry: CorsRegistry) {
         registry.addMapping("/**")
-            .allowedOrigins(frontUrl)
+            .allowedOriginPatterns(frontUrl)
+            .allowedMethods("*")
     }
 
     override fun configureAsyncSupport(configurer: AsyncSupportConfigurer) {
@@ -29,6 +30,6 @@ class WebConfig : WebMvcConfigurer {
 
     @Bean
     protected fun getTaskExecutor(): ConcurrentTaskExecutor {
-        return ConcurrentTaskExecutor(Executors.newFixedThreadPool(5))
+        return ConcurrentTaskExecutor(Executors.newFixedThreadPool(8))
     }
 }

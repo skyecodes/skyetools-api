@@ -1,1 +1,1 @@
-rootProject.name = "skyetools"
+rootProject.name = "skyetools-api"
