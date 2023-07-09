@@ -30,6 +30,6 @@ class WebConfig : WebMvcConfigurer {
 
     @Bean
     protected fun getTaskExecutor(): ConcurrentTaskExecutor {
-        return ConcurrentTaskExecutor(Executors.newFixedThreadPool(5))
+        return ConcurrentTaskExecutor(Executors.newFixedThreadPool(8))
     }
 }

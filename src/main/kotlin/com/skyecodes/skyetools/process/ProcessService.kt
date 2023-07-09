@@ -18,7 +18,7 @@ class ProcessService {
     fun get(processId: UUID): Optional<Process> = Optional.ofNullable(processMap[processId])
 
     @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.MINUTES)
-    fun clearCache() {
+    fun clearProcess() {
         val curTimestamp = UuidCreator.getTimeBased().timestamp()
         val lastHour = curTimestamp - 100 * 1000 * 60 * 60
         processMap.iterator().run {
