@@ -16,7 +16,7 @@ private val logger: Logger = LoggerFactory.getLogger(SSEMessage::class.java)
 sealed interface SSEMessage {
     val id: Int
     val event: String
-    fun asString(objectMapper: ObjectMapper): String = objectMapper.writeValueAsString(this)
+    fun asString(objectMapper: ObjectMapper): String? = objectMapper.writeValueAsString(this)
     fun toEvent(objectMapper: ObjectMapper) = ServerSentEvent.builder<String>()
         .id(id.toString())
         .event(event)
@@ -42,7 +42,7 @@ data class SSEErrorMessage(override val id: Int, val errorMessage: String) : SSE
 data object SSEPassMessage : SSEMessage {
     override val id: Int = 0
     override val event: String = "pass"
-    override fun asString(objectMapper: ObjectMapper): String = ""
+    override fun asString(objectMapper: ObjectMapper) = null
 }
 
 fun streamToFlux(optStream: Optional<Stream<SSEMessage>>, objectMapper: ObjectMapper): Flux<ServerSentEvent<String>> {

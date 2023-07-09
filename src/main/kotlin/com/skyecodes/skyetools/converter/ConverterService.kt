@@ -44,8 +44,8 @@ class ConverterService(val storageService: StorageService, val processService: P
                 } else if (line.startsWith("Output #0")) {
                     outputFile = Path.of(outputPath.path, line.split("'")[1])
                 } else if (line.contains("time=")) {
-                    val time = parseTime(line.substring(line.indexOf("time=") + 5).substring(0, 11))
-                    result = SSEProgressMessage(id++, false, time / duration * 100, null)
+                    val time = parseTime(line.substring(line.indexOf("time=") + 5).split(" ")[0])
+                    result = SSEProgressMessage(id++, false, (time / duration * 100).coerceAtLeast(.0), null)
                 } else if (line.startsWith("video:")) {
                     result =
                         SSEProgressMessage(id++, true, 100.0, storageService.storeAndGetId(outputFile!!, processId))
