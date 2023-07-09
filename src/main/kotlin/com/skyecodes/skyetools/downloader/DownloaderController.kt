@@ -15,9 +15,9 @@ class DownloaderController(val downloaderService: DownloaderService, val objectM
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     @PostMapping("/downloader/process")
-    fun process(@RequestBody data: DownloadRequest): UUID {
-        logger.debug("Processing URL {} for download", data.url)
-        return downloaderService.processDownload(data)
+    fun process(url: String, audio: Boolean): UUID {
+        logger.debug("Processing URL {} for download (audio={})", url, audio)
+        return downloaderService.processDownload(url, audio)
     }
 
     @GetMapping("/downloader/{processId}/progress")

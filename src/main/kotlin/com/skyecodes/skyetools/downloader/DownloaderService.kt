@@ -27,8 +27,8 @@ class DownloaderService(val storageService: StorageService, val processService: 
 
     private val outputPath by lazy { File(storageService.storagePath, "downloader").apply { mkdirs() } }
 
-    fun processDownload(req: DownloadRequest): UUID {
-        val params = getCommandParametersFromRequest(req)
+    fun processDownload(url: String, audio: Boolean): UUID {
+        val params = getCommandParametersFromRequest(url, audio)
         logger.debug("Executing command: {}", params.joinToString(" "))
         val process = ProcessBuilder(params).directory(outputPath).redirectErrorStream(true).start()
         return processService.register(process)
@@ -75,7 +75,7 @@ class DownloaderService(val storageService: StorageService, val processService: 
         }
     }
 
-    private fun getCommandParametersFromRequest(req: DownloadRequest): List<String> {
+    private fun getCommandParametersFromRequest(url: String, audio: Boolean): List<String> {
         val params = mutableListOf(
             ytdlpPath,
             "--print",
@@ -84,24 +84,8 @@ class DownloaderService(val storageService: StorageService, val processService: 
             "--newline",
             "--restrict-filenames"
         )
-        if (!(req.type == DownloadRequest.Type.ALL && req.quality == DownloadRequest.Quality.BEST && req.size == DownloadRequest.Size.NO_LIMIT)) {
-            if (req.type == DownloadRequest.Type.AUDIO) {
-                params += "-x"
-            }
-            var format = req.quality.str + req.type.str
-            if (req.type != DownloadRequest.Type.ALL && !(req.quality == DownloadRequest.Quality.BEST && req.type == DownloadRequest.Type.AUDIO)) {
-                format += "*"
-            }
-            if (req.size != DownloadRequest.Size.NO_LIMIT) {
-                format += "[filesize<${req.size.str}]"
-            }
-            params += "-f"
-            params += "\"$format\""
-        }
-        if (req.preferFreeFormats) {
-            params += "--prefer-free-formats"
-        }
-        params += req.url
+        if (audio) params += "-x"
+        params += url
         return params
     }
 
