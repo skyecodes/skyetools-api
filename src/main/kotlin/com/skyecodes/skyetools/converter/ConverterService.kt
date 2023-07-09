@@ -25,9 +25,18 @@ class ConverterService(val storageService: StorageService, val processService: P
     private val outputPath by lazy { File(storageService.storagePath, "converter").apply { mkdirs() } }
 
     fun processConvert(file: MultipartFile, ext: String): UUID {
-        val params = getCommandParametersFromRequest(file, ext)
+        val inputFile = File(storageService.tempPath, UUID.randomUUID().toString()).absoluteFile.also {
+            it.parentFile.mkdirs()
+            file.transferTo(it)
+        }
+        val outputFileName = File(storageService.tempPath, file.resource.filename!!).nameWithoutExtension + ".$ext"
+        val params = listOf(ffmpegPath, "-y", "-nostdin", "-i", inputFile.path, outputFileName)
         logger.debug("Executing command: {}", params.joinToString(" "))
         val process = ProcessBuilder(params).directory(outputPath).redirectErrorStream(true).start()
+        process.onExit().thenApply {
+            logger.debug("Deleting temp file {}", inputFile.name)
+            inputFile.delete()
+        }
         return processService.register(process)
     }
 
@@ -51,19 +60,12 @@ class ConverterService(val storageService: StorageService, val processService: P
                         SSEProgressMessage(id++, true, 100.0, storageService.storeAndGetId(outputFile!!, processId))
                 } else if (line.lowercase().contains("error")) {
                     result = SSEErrorMessage(id++, line)
+                } else if (!it.isAlive) {
+                    result = SSEErrorMessage(id++, "Process exited without processing")
                 }
                 result
             }
         }
-    }
-
-    private fun getCommandParametersFromRequest(file: MultipartFile, ext: String): List<String> {
-        val inputFile = File(storageService.tempPath, UUID.randomUUID().toString()).absoluteFile.also {
-            it.parentFile.mkdirs()
-            file.transferTo(it)
-        }
-        val outputFileName = File(storageService.tempPath, file.resource.filename!!).nameWithoutExtension + ".$ext"
-        return listOf(ffmpegPath, "-y", "-nostdin", "-i", inputFile.path, outputFileName)
     }
 
     private fun parseTime(time: String) = time.split(":")

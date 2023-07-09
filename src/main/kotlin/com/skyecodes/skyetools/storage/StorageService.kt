@@ -1,6 +1,5 @@
 package com.skyecodes.skyetools.storage
 
-import com.github.f4b6a3.uuid.UuidCreator
 import com.google.common.collect.HashBiMap
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -8,9 +7,17 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.io.File
+import java.io.IOException
+import java.nio.file.FileVisitResult
+import java.nio.file.FileVisitor
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
+import java.time.Duration
+import java.time.Instant
 import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteIfExists
 
 @Service
@@ -36,23 +43,37 @@ class StorageService {
 
     @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.MINUTES)
     fun clearCache() {
-        val curTimestamp = UuidCreator.getTimeBased().timestamp()
-        val lastHour = curTimestamp - 100 * 1000 * 60 * 60
+        val lastHour = Instant.now().minus(Duration.ofHours(1))
         storedFiles.iterator().run {
             while (hasNext()) {
                 val file = next()
-                if (file.key.timestamp() < lastHour) {
+                val fileTimestamp = Date(file.key.timestamp() / 10000L - 12219292800000L).toInstant()
+                if (fileTimestamp < lastHour) {
                     file.value.deleteIfExists()
                     remove()
                     logger.info("File {} cleared ({})", file.key, file.value)
                 }
             }
         }
-        File(tempPath).deleteRecursively()
     }
 
     @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)
-    fun clearTempDir() {
+    fun clearTempDirAndOtherFiles() {
+        logger.info("Clearing temp dir and other files")
         File(tempPath).deleteRecursively()
+        Files.walkFileTree(Path.of(storagePath), object : FileVisitor<Path> {
+            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes?) = FileVisitResult.CONTINUE
+
+            override fun visitFile(file: Path, attrs: BasicFileAttributes?): FileVisitResult {
+                if (!storedFiles.values.map { it.absolutePathString() }.contains(file.absolutePathString()))
+                    file.deleteIfExists()
+                return FileVisitResult.CONTINUE
+            }
+
+            override fun visitFileFailed(file: Path, exc: IOException?) = FileVisitResult.CONTINUE
+
+            override fun postVisitDirectory(dir: Path, exc: IOException?) = FileVisitResult.CONTINUE
+        })
+        logger.info("Temp dir and other files cleared")
     }
 }
