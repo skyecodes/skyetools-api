@@ -61,16 +61,16 @@ class StorageService {
     fun clearTempDirAndOtherFiles() {
         logger.info("Clearing temp dir and other files")
         File(tempPath).deleteRecursively()
+        val storedFilesPath = storedFiles.values.map { it.absolutePathString() }
         Files.walkFileTree(Path.of(storagePath), object : FileVisitor<Path> {
-            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes?) = FileVisitResult.CONTINUE
+            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes) = FileVisitResult.CONTINUE
 
-            override fun visitFile(file: Path, attrs: BasicFileAttributes?): FileVisitResult {
-                if (!storedFiles.values.map { it.absolutePathString() }.contains(file.absolutePathString()))
-                    file.deleteIfExists()
+            override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                if (attrs.isRegularFile && !storedFilesPath.contains(file.absolutePathString())) file.deleteIfExists()
                 return FileVisitResult.CONTINUE
             }
 
-            override fun visitFileFailed(file: Path, exc: IOException?) = FileVisitResult.CONTINUE
+            override fun visitFileFailed(file: Path, exc: IOException) = FileVisitResult.CONTINUE
 
             override fun postVisitDirectory(dir: Path, exc: IOException?) = FileVisitResult.CONTINUE
         })

@@ -25,18 +25,19 @@ class DownloaderService(val storageService: StorageService, val processService: 
     @Value("\${skyetools.downloader.ytdlpPath}")
     private lateinit var ytdlpPath: String
 
-    private val outputPath by lazy { File(storageService.storagePath, "downloader").apply { mkdirs() } }
+    private val outputPath by lazy { File(storageService.storagePath, "downloader") }
 
     fun processDownload(url: String, audio: Boolean): UUID {
         val params = getCommandParametersFromRequest(url, audio)
         logger.debug("Executing command: {}", params.joinToString(" "))
-        val process = ProcessBuilder(params).directory(outputPath).redirectErrorStream(true).start()
+        val process = ProcessBuilder(params).directory(outputPath.apply { mkdirs() }).redirectErrorStream(true).start()
         return processService.register(process)
     }
 
     fun streamDownloadProgress(processId: UUID): Optional<Stream<SSEMessage>> {
         var idx = 0
         var isCompleted = false
+        var lastProgress = .0
         var progress: Double
         var fileId: UUID? = null
         return processService.get(processId).map {
@@ -49,7 +50,7 @@ class DownloaderService(val storageService: StorageService, val processService: 
                     }
                 } else {
                     if (!isCompleted && line.startsWith("[download]")) {
-                        progress = line.split("%")[0].substring(10).trim().toDouble()
+                        progress = line.split("%")[0].substring(10).trim().toDouble().coerceAtMost(100.0)
                         if (!line.contains("ETA")) {
                             isCompleted = true
                         }
@@ -69,7 +70,8 @@ class DownloaderService(val storageService: StorageService, val processService: 
                             }
                         }
                     }
-                    SSEProgressMessage(idx++, isCompleted, progress, fileId)
+                    progress = if (progress < 1) progress else progress.coerceAtLeast(lastProgress)
+                    SSEProgressMessage(idx++, isCompleted, progress, fileId).apply { lastProgress = progress }
                 }
             }
         }
@@ -82,7 +84,8 @@ class DownloaderService(val storageService: StorageService, val processService: 
             "after_move:filepath",
             "--progress",
             "--newline",
-            "--restrict-filenames"
+            "--restrict-filenames",
+            "-k"
         )
         if (audio) params += "-x"
         params += url

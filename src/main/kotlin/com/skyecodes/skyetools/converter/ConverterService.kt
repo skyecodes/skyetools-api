@@ -22,7 +22,7 @@ class ConverterService(val storageService: StorageService, val processService: P
 
     @Value("\${skyetools.converter.ffmpegPath}")
     private lateinit var ffmpegPath: String
-    private val outputPath by lazy { File(storageService.storagePath, "converter").apply { mkdirs() } }
+    private val outputPath by lazy { File(storageService.storagePath, "converter") }
 
     fun processConvert(file: MultipartFile, ext: String): UUID {
         val inputFile = File(storageService.tempPath, UUID.randomUUID().toString()).absoluteFile.also {
@@ -32,7 +32,7 @@ class ConverterService(val storageService: StorageService, val processService: P
         val outputFileName = File(storageService.tempPath, file.resource.filename!!).nameWithoutExtension + ".$ext"
         val params = listOf(ffmpegPath, "-y", "-nostdin", "-i", inputFile.path, outputFileName)
         logger.debug("Executing command: {}", params.joinToString(" "))
-        val process = ProcessBuilder(params).directory(outputPath).redirectErrorStream(true).start()
+        val process = ProcessBuilder(params).directory(outputPath.apply { mkdirs() }).redirectErrorStream(true).start()
         process.onExit().thenApply {
             logger.debug("Deleting temp file {}", inputFile.name)
             inputFile.delete()
@@ -44,6 +44,7 @@ class ConverterService(val storageService: StorageService, val processService: P
         var duration = .0
         var id = 0
         var outputFile: Path? = null
+        var lastProgress = .0
         return processService.get(processId).map {
             it.inputReader().lines().map { line ->
                 logger.trace(line)
@@ -54,7 +55,9 @@ class ConverterService(val storageService: StorageService, val processService: P
                     outputFile = Path.of(outputPath.path, line.split("'")[1])
                 } else if (line.contains("time=")) {
                     val time = parseTime(line.substring(line.indexOf("time=") + 5).split(" ")[0])
-                    result = SSEProgressMessage(id++, false, (time / duration * 100).coerceAtLeast(.0), null)
+                    val progress = (time / duration * 100).coerceAtLeast(lastProgress)
+                    result = SSEProgressMessage(id++, false, progress, null)
+                    lastProgress = progress
                 } else if (line.startsWith("video:")) {
                     result =
                         SSEProgressMessage(id++, true, 100.0, storageService.storeAndGetId(outputFile!!, processId))
