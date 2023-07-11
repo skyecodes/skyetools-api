@@ -4,7 +4,6 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.PathResource
 import org.springframework.http.*
-import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
@@ -16,7 +15,6 @@ class StorageController(val storageService: StorageService) {
     private val logger: Logger = LoggerFactory.getLogger(this::class.java)
 
     @GetMapping("/storage/{fileId}")
-    @CrossOrigin(exposedHeaders = [HttpHeaders.CONTENT_DISPOSITION])
     fun getStoredFile(@PathVariable fileId: String): ResponseEntity<PathResource> {
         logger.debug("Requested file {}", fileId)
         val path = storageService.getPathFromId(UUID.fromString(fileId))
