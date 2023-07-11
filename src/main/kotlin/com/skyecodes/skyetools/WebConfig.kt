@@ -20,7 +20,7 @@ class WebConfig : WebMvcConfigurer {
 
     override fun addCorsMappings(registry: CorsRegistry) {
         registry.addMapping("/**")
-            .allowedOriginPatterns(frontUrl)
+            .allowedOriginPatterns(*frontUrl.split(" ", ";").toTypedArray())
             .allowedMethods("*")
     }
 
