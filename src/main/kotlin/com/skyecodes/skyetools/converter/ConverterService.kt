@@ -71,6 +71,6 @@ class ConverterService(val storageService: StorageService, val processService: P
         }
     }
 
-    private fun parseTime(time: String) = time.split(":")
+    private fun parseTime(time: String) = if (time == "N/A") 1.0 else time.split(":")
         .let { it[0].toInt() * 60 * 60 + it[1].toInt() * 60 + it[2].toDouble() }
 }
